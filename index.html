@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#1f6f43">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bills">
+<meta name="robots" content="noindex">
+<title>Bills</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f6f3;--card:#fff;--text:#111;--muted:#666;--line:#ddd;--green:#1f6f43;--red:#c0262d;--redbg:#fdecec}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--card:#1d1d1d;--text:#f2f2f2;--muted:#aaa;--line:#333;--green:#3fbf74;--red:#ff6b6b;--redbg:#3a1a1a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:18px/1.35 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{position:sticky;top:0;background:var(--bg);padding:12px 12px 8px;border-bottom:1px solid var(--line);z-index:2}
+.nav{display:flex;align-items:center;justify-content:space-between}
+.nav h1{font-size:26px;margin:0;text-align:center;flex:1}
+.nav button{font-size:26px;width:52px;height:46px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px}
+.nav button:disabled{opacity:.25}
+.totals{text-align:center;margin-top:6px;font-size:17px}
+.totals b.p{color:var(--green)} .totals b.u{color:var(--red)}
+main{padding:8px 10px 90px}
+h2{font-size:17px;margin:14px 4px 6px;color:var(--muted);font-weight:600}
+h2.pd{color:var(--red)}
+.row{display:grid;grid-template-columns:34px minmax(0,1fr);align-items:center;gap:6px 10px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px;margin:6px 0}
+.row.pastdue{background:var(--redbg);border-color:var(--red)}
+.row.paid{opacity:.5}
+.row input[type=checkbox]{width:34px;height:34px;flex:none;accent-color:var(--green);margin:0}
+.info{flex:1;min-width:0}
+.name{font-weight:600;word-wrap:break-word}
+.sub{font-size:15px;color:var(--muted)}
+.sub .late{color:var(--red);font-weight:600}
+.pay{grid-column:2;display:flex;gap:8px}
+.amt,.via{flex:1;min-width:0;font-size:17px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text);height:42px}
+.amt{text-align:right}
+.add{display:block;width:100%;margin:16px 0;padding:14px;font-size:18px;border:2px dashed var(--line);background:transparent;color:var(--text);border-radius:14px}
+.empty{color:var(--muted);text-align:center;padding:20px}
+dialog{border:none;border-radius:16px;padding:16px;width:min(92vw,420px);background:var(--card);color:var(--text)}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog label{display:block;margin:10px 0 4px;font-size:15px;color:var(--muted)}
+dialog input{width:100%;font-size:18px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text)}
+.btns{display:flex;gap:8px;margin-top:16px}
+.btns button{flex:1;font-size:18px;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+.btns .save{background:var(--green);color:#fff;border-color:var(--green)}
+.btns .del{color:var(--red)}
+.foot{text-align:center;font-size:14px;color:var(--muted)}
+.foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="nav">
+    <button id="prev" aria-label="Previous month">&#9664;</button>
+    <h1 id="month"></h1>
+    <button id="next" aria-label="Next month">&#9654;</button>
+  </div>
+  <div class="totals" id="totals"></div>
+</header>
+<main id="list"></main>
+
+<dialog id="dlg">
+  <form method="dialog" id="form">
+    <h3 id="dlgTitle" style="margin:0">Bill</h3>
+    <label>Name</label><input id="fName" required autocomplete="off">
+    <label>Amount due ($)</label><input id="fAmt" inputmode="decimal" autocomplete="off">
+    <label>Due day of month (1-31)</label><input id="fDue" inputmode="numeric" autocomplete="off">
+    <label>Note (optional)</label><input id="fNote" autocomplete="off">
+    <div class="btns">
+      <button type="button" class="del" id="fDel">Delete</button>
+      <button type="button" id="fCancel">Cancel</button>
+      <button type="submit" class="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+/* ===== BILL DATA (swap here) =====
+   Format: [name, amountDue, dueDay, note]. Leave [] for the public copy;
+   bills can also be loaded once from a link ending in #import=CODE. */
+const PRELOAD_BILLS = /*BILLS_START*/[]/*BILLS_END*/;
+/* ===== END BILL DATA ===== */
+
+const KEY = 'billChecklist.v1';
+const PAY_WITH = ['', 'Cash', 'Cash App', 'Venmo', 'Capital One', 'SoFi', 'Fidelity'];
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const qs = new URLSearchParams(location.search);
+const NOW = qs.get('today') ? new Date(qs.get('today') + 'T12:00:00') : new Date(); // ?today= for testing
+const mk = d => d.getFullYear() + '-' + pad(d.getMonth() + 1);
+const CUR = mk(NOW);
+const TODAY = CUR + '-' + pad(NOW.getDate());
+const addM = (m, n) => { let [y, mo] = m.split('-').map(Number); const d = new Date(y, mo - 1 + n, 1); return mk(d); };
+const mName = (m, long) => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleString('en-US', long ? {month: 'long', year: 'numeric'} : {month: 'long'}); };
+const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const num = v => { const n = parseFloat(String(v ?? '').replace(/[$,\s]/g, '')); return isFinite(n) ? n : 0; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch (e) { return null; } }
+let S = load() || {firstMonth: CUR, bills: [], months: {}, imported: false};
+if (!S.months) S.months = {};
+if (!S.firstMonth || S.firstMonth > CUR) S.firstMonth = CUR;
+const save = () => localStorage.setItem(KEY, JSON.stringify(S));
+const newId = () => 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function importList(arr) {
+  S.bills = arr.filter(r => r && r[0]).map(r => ({id: newId(), name: String(r[0]), amount: r[1] == null ? '' : r[1], due: r[2] == null ? '' : r[2], note: r[3] || '', added: S.firstMonth}));
+  S.imported = true; save();
+}
+function decode(code) { return JSON.parse(decodeURIComponent(escape(atob(code.replace(/-/g, '+').replace(/_/g, '/'))))); }
+// One-time preload: embedded data, or #import=CODE link (only if nothing loaded yet)
+if (!S.imported && !S.bills.length) {
+  const m = location.hash.match(/import=([A-Za-z0-9_\-+/=]+)/);
+  try {
+    if (m) importList(decode(m[1]));
+    else if (PRELOAD_BILLS.length) importList(PRELOAD_BILLS);
+  } catch (e) { console.error('import failed', e); }
+}
+save();
+
+let view = CUR;
+const rec = (m, id) => (S.months[m] || {})[id] || {};
+function setRec(m, id, patch) { S.months[m] = S.months[m] || {}; S.months[m][id] = Object.assign({}, S.months[m][id], patch); save(); }
+const activeIn = (b, m) => (b.added || S.firstMonth) <= m && S.firstMonth <= m;
+
+function row(b, m, pastDue) {
+  const r = rec(m, b.id), paid = !!r.paid;
+  const dueTxt = b.due ? 'Due the ' + b.due + ([, 'st', 'nd', 'rd'][(b.due % 100 - 20) % 10] || [, 'st', 'nd', 'rd'][b.due % 100] || 'th') : '';
+  const late = !paid && !pastDue && m === CUR && b.due && NOW.getDate() > b.due;
+  const bits = [];
+  if (b.amount !== '' && b.amount != null) bits.push(money(b.amount));
+  if (dueTxt) bits.push(late ? '<span class="late">' + dueTxt + ' - late</span>' : dueTxt);
+  if (paid && r.date) bits.push('paid ' + r.date.slice(5).replace('-', '/'));
+  if (b.note) bits.push(esc(b.note));
+  return '<div class="row' + (paid ? ' paid' : '') + (pastDue ? ' pastdue' : '') + '" data-id="' + b.id + '" data-m="' + m + '">' +
+    '<input type="checkbox" class="ck" aria-label="Paid"' + (paid ? ' checked' : '') + '>' +
+    '<div class="info"><div class="name">' + esc(b.name) + '</div><div class="sub">' + bits.join(' &middot; ') + '</div></div>' +
+    '<div class="pay"><input class="amt" inputmode="decimal" placeholder="Amount paid $" value="' + esc(r.amt ?? '') + '" aria-label="Amount paid">' +
+    '<select class="via" aria-label="Paid with">' + PAY_WITH.map(o => '<option value="' + esc(o) + '"' + ((r.via || '') === o ? ' selected' : '') + '>' + (o || 'Paid with...') + '</option>').join('') + '</select></div></div>';
+}
+
+function render() {
+  $('month').textContent = mName(view, true);
+  $('prev').disabled = view <= S.firstMonth;
+  $('next').disabled = view >= CUR;
+  const bills = S.bills.filter(b => activeIn(b, view));
+  const dueKey = b => b.due ? Number(b.due) : 99;
+  const unpaid = bills.filter(b => !rec(view, b.id).paid).sort((a, b) => dueKey(a) - dueKey(b) || a.name.localeCompare(b.name));
+  const paid = bills.filter(b => rec(view, b.id).paid).sort((a, b) => dueKey(a) - dueKey(b));
+  // Past due carryover: unpaid bills from earlier months (since first use)
+  let html = '', pdTotal = 0;
+  for (let m = S.firstMonth; m < view; m = addM(m, 1)) {
+    const left = S.bills.filter(b => activeIn(b, m) && !rec(m, b.id).paid).sort((a, b) => dueKey(a) - dueKey(b));
+    if (!left.length) continue;
+    html += '<h2 class="pd">Past due from ' + mName(m, m.slice(0, 4) !== view.slice(0, 4)) + '</h2>' + left.map(b => row(b, m, true)).join('');
+    left.forEach(b => pdTotal += num(b.amount));
+  }
+  let paidTotal = 0, owed = pdTotal;
+  bills.forEach(b => { const r = rec(view, b.id); if (r.paid) paidTotal += r.amt !== undefined && r.amt !== '' ? num(r.amt) : num(b.amount); else owed += num(b.amount); });
+  if (unpaid.length) html += '<h2>Not paid yet (' + unpaid.length + ')</h2>' + unpaid.map(b => row(b, view)).join('');
+  if (paid.length) html += '<h2>Paid (' + paid.length + ')</h2>' + paid.map(b => row(b, view)).join('');
+  if (!S.bills.length) html += '<div class="empty">No bills yet. Tap "+ Add a bill", or open your setup link.</div>';
+  html += '<button class="add" id="addBtn">+ Add a bill</button><div class="foot">Tap a bill name to edit or delete it.</div>';
+  $('list').innerHTML = html;
+  $('totals').innerHTML = 'Paid <b class="p">' + money(paidTotal) + '</b> &nbsp;&middot;&nbsp; Still unpaid <b class="u">' + money(owed) + '</b>' + (pdTotal ? '<br><span style="font-size:14px">(includes ' + money(pdTotal) + ' past due)</span>' : '');
+}
+
+$('list').addEventListener('change', e => {
+  const el = e.target, r = el.closest('.row'); if (!r) return;
+  const id = r.dataset.id, m = r.dataset.m, b = S.bills.find(x => x.id === id);
+  if (el.classList.contains('ck')) {
+    const cur = rec(m, id);
+    const patch = el.checked ? {paid: true, date: TODAY} : {paid: false, date: ''};
+    if (el.checked && (cur.amt === undefined || cur.amt === '') && b && b.amount !== '') patch.amt = String(b.amount);
+    setRec(m, id, patch); render();
+  } else if (el.classList.contains('amt')) {
+    setRec(m, id, {amt: el.value.trim()}); render();  } else if (el.classList.contains('via')) {
+    setRec(m, id, {via: el.value});
+  }
+});
+$('list').addEventListener('click', e => {
+  if (e.target.id === 'addBtn') return openDlg(null);
+  const n = e.target.closest('.info'); if (n) openDlg(n.closest('.row').dataset.id);
+});
+$('prev').onclick = () => { if (view > S.firstMonth) { view = addM(view, -1); render(); } };
+$('next').onclick = () => { if (view < CUR) { view = addM(view, 1); render(); } };
+
+let editing = null;
+function openDlg(id) {
+  editing = id; const b = S.bills.find(x => x.id === id) || {};
+  $('dlgTitle').textContent = id ? 'Edit bill' : 'Add a bill';
+  $('fName').value = b.name || ''; $('fAmt').value = b.amount ?? ''; $('fDue').value = b.due ?? ''; $('fNote').value = b.note || '';
+  $('fDel').style.display = id ? '' : 'none';
+  $('dlg').showModal();
+}
+$('form').addEventListener('submit', e => {
+  const name = $('fName').value.trim(); if (!name) { e.preventDefault(); return; }
+  const a = $('fAmt').value.trim(), d = parseInt($('fDue').value, 10);
+  const data = {name, amount: a === '' ? '' : num(a), due: d >= 1 && d <= 31 ? d : '', note: $('fNote').value.trim()};
+  if (editing) Object.assign(S.bills.find(x => x.id === editing), data);
+  else S.bills.push(Object.assign({id: newId(), added: CUR}, data));
+  S.imported = true; save(); render();
+});
+$('fCancel').onclick = () => $('dlg').close();
+$('fDel').onclick = () => {
+  const b = S.bills.find(x => x.id === editing);
+  if (b && confirm('Delete "' + b.name + '"?')) { S.bills = S.bills.filter(x => x.id !== editing); save(); $('dlg').close(); render(); }
+};
+render();
+</script>
+</body>
+</html>
