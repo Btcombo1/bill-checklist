@@ -121,6 +121,15 @@ if (!S.imported && !S.bills.length) {
     else if (PRELOAD_BILLS.length) importList(PRELOAD_BILLS);
   } catch (e) { console.error('import failed', e); }
 }
+// v2 migration (Oct 24, 2026): Play Store subscriptions are auto-paid, so remove them from the checklist
+const APP_VER = 2;
+const REMOVE_V2 = ['google one', 'chatgpt plus', 'supergrok'];
+if ((S.ver || 1) < 2) {
+  const gone = S.bills.filter(b => REMOVE_V2.some(p => String(b.name || '').toLowerCase().startsWith(p))).map(b => b.id);
+  S.bills = S.bills.filter(b => !gone.includes(b.id));
+  Object.keys(S.months).forEach(m => gone.forEach(id => { delete S.months[m][id]; }));
+}
+S.ver = APP_VER;
 save();
 
 let view = CUR;
@@ -165,7 +174,7 @@ function render() {
   if (unpaid.length) html += '<h2>Not paid yet (' + unpaid.length + ')</h2>' + unpaid.map(b => row(b, view)).join('');
   if (paid.length) html += '<h2>Paid (' + paid.length + ')</h2>' + paid.map(b => row(b, view)).join('');
   if (!S.bills.length) html += '<div class="empty">No bills yet. Tap "+ Add a bill", or open your setup link.</div>';
-  html += '<button class="add" id="addBtn">+ Add a bill</button><div class="foot">Tap a bill name to edit or delete it.</div>';
+  html += '<button class="add" id="addBtn">+ Add a bill</button><div class="foot">Tap a bill name to edit or delete it. &middot; v2</div>';
   $('list').innerHTML = html;
   $('totals').innerHTML = 'Paid <b class="p">' + money(paidTotal) + '</b> &nbsp;&middot;&nbsp; Still unpaid <b class="u">' + money(owed) + '</b>' + (pdTotal ? '<br><span style="font-size:14px">(includes ' + money(pdTotal) + ' past due)</span>' : '');
 }
